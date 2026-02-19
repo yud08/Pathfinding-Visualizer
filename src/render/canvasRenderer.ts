@@ -54,7 +54,7 @@ export function drawGrid(
   ctx.lineWidth = 1;
 
   ctx.beginPath();
-
+  const showGridLines = !!opts.showGridLines;
   // The +0.5 helps lines look better with integer coordinates
   for (let c = 0; c <= grid.width; c++) {
     const x = xBound[c] + 0.5;
