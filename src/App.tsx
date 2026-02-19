@@ -3,6 +3,7 @@ import "./App.css";
 import { useMemo, useState } from "react";
 import CanvasGrid from "./ui/CanvasGrid";
 import { GridState, GRID_MIN, GRID_MAX, clampInt } from "./grid/model";
+import { BrushTool } from "./grid/brush";
 
 function commitDim(
   raw: string,
@@ -41,6 +42,24 @@ export default function App() {
   const [hText, setHText] = useState("25");
 
   const [msg, setMsg] = useState("");
+
+  const [renderTick, setRenderTick] = useState(0);
+  const bumpRender = () => setRenderTick((t) => t + 1);
+
+  const [brush] = useState(() => new BrushTool());
+
+  const [mode, setMode] = useState<"weight" | "blocked">("weight");
+  const [shape, setShape] = useState<"square" | "circle">("square");
+  const [brushSize, setBrushSize] = useState(1);
+  const [paintWeight, setPaintWeight] = useState(0);
+  const [paintBlocked, setPaintBlocked] = useState(true);
+
+  brush.mode = mode;
+  brush.shape = shape;
+  brush.setSize(brushSize);
+  brush.paintWeight = paintWeight;
+  brush.paintBlocked = paintBlocked;
+
 
   const grid = useMemo(() => new GridState(w, h), [w, h]);
 
@@ -108,7 +127,78 @@ export default function App() {
         {msg && <div style={{ color: "#a00000", fontWeight: 600 }}>{msg}</div>}
       </div>
 
-      <CanvasGrid grid={grid} />
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center", marginTop: 10 }}>
+        <label>
+          Mode:
+          <select value={mode} onChange={(e) => setMode(e.target.value as any)} style={{ marginLeft: 8 }}>
+            <option value="weight">Weight</option>
+            <option value="blocked">Blocked</option>
+          </select>
+        </label>
+
+        <label>
+          Shape:
+          <select value={shape} onChange={(e) => setShape(e.target.value as any)} style={{ marginLeft: 8 }}>
+            <option value="square">Square</option>
+            <option value="circle">Circle</option>
+          </select>
+        </label>
+
+        <label>
+          Brush size:
+          <input
+            type="number"
+            value={brushSize}
+            min={1}
+            max={500}
+            onChange={(e) => setBrushSize(Number(e.target.value))}
+            style={{ marginLeft: 8, width: 90 }}
+          />
+        </label>
+
+        {mode === "weight" && (
+          <label>
+            Weight (0–1000):
+            <input
+              type="number"
+              value={paintWeight}
+              min={0}
+              max={1000}
+              onChange={(e) => setPaintWeight(Number(e.target.value))}
+              style={{ marginLeft: 8, width: 110 }}
+            />
+          </label>
+        )}
+
+        {mode === "blocked" && (
+          <label>
+            Block?
+            <input
+              type="checkbox"
+              checked={paintBlocked}
+              onChange={(e) => setPaintBlocked(e.target.checked)}
+              style={{ marginLeft: 8 }}
+            />
+          </label>
+        )}
+
+        <button
+          onClick={() => {
+            grid.reset();
+            bumpRender();
+          }}
+        >
+          Reset grid
+        </button>
+      </div>
+
+
+      <CanvasGrid
+        grid={grid}
+        brush={brush}
+        renderTick={renderTick}
+        onGridMutated={bumpRender}
+      />
     </div>
   );
 }

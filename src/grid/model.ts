@@ -42,4 +42,27 @@ export class GridState {
   coord(index: number) {
     return { row: Math.floor(index / this.width), col: index % this.width };
   }
+  inBounds(row: number, col: number): boolean {
+    return row >= 0 && row < this.height && col >= 0 && col < this.width;
+  }
+
+  setWeight(index: number, w: number) {
+    const i = clampInt(index, 0, this.cellCount() - 1);
+    const ww = clampInt(w, 0, 1000);
+    this.weights[i] = ww;
+  }
+
+  setBlocked(index: number, isBlocked: boolean) {
+    const i = clampInt(index, 0, this.cellCount() - 1);
+    if (i === this.startIndex || i === this.endIndex) return;
+    this.blocked[i] = isBlocked ? 1 : 0;
+  }
+
+  reset() {
+    this.weights.fill(0);
+    this.blocked.fill(0);
+    this.startIndex = 0;
+    this.endIndex = this.cellCount() - 1;
+  }
 }
+
