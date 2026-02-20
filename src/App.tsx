@@ -4,6 +4,9 @@ import { useMemo, useState } from "react";
 import CanvasGrid from "./ui/CanvasGrid";
 import { GridState, GRID_MIN, GRID_MAX, clampInt } from "./grid/model";
 import { BrushTool } from "./grid/brush";
+import { useEffect, useRef } from "react";
+import { generateRandomTerrain } from "./grid/generator/randomTerrain";
+import { generateMaze } from "./grid/generator/maze";
 
 function commitDim(
   raw: string,
@@ -62,6 +65,60 @@ export default function App() {
 
 
   const grid = useMemo(() => new GridState(w, h), [w, h]);
+
+  const [seedMode, setSeedMode] = useState<"auto" | "manual">("auto");
+  const [manualSeedText, setManualSeedText] = useState("123");
+
+  // Show the seed that was actually used most recently for each generator
+  const [lastTerrainSeed, setLastTerrainSeed] = useState<number | null>(null);
+  const [lastMazeSeed, setLastMazeSeed] = useState<number | null>(null);
+
+  // Random terrain only settings
+  const [blockedProb, setBlockedProb] = useState(0.12);
+  const [smoothPasses, setSmoothPasses] = useState(1);
+
+  function makeAutoSeed(): number {
+    return ((Date.now() ^ Math.floor(Math.random() * 0x7fffffff)) >>> 0);
+  }
+
+  function getSeedForGeneration(): number {
+    if (seedMode === "manual") {
+      const parsed = Number(manualSeedText.trim());
+      if (Number.isFinite(parsed)) {
+        return Math.trunc(parsed);
+      }
+      // If manual seed is invalid, fall back to auto 
+      return makeAutoSeed();
+    }
+
+    // Auto mode new seed every click
+    return makeAutoSeed();
+  }
+
+  function handleGenerateRandomTerrain() {
+    const seed = getSeedForGeneration();
+
+    generateRandomTerrain(grid, {
+      seed,
+      blockedProbability: blockedProb,
+      minWeight: 0,
+      maxWeight: 1000,
+      smoothingPasses: smoothPasses,
+    });
+
+    setLastTerrainSeed(seed);
+    bumpRender();
+  }
+
+  function handleGenerateMaze() {
+    const seed = getSeedForGeneration();
+
+    generateMaze(grid, { seed });
+
+    setLastMazeSeed(seed);
+    bumpRender();
+  }
+
 
   return (
     <div style={{ padding: 16 }}>
@@ -194,13 +251,121 @@ export default function App() {
         </button>
       </div>
 
-
       <CanvasGrid
         grid={grid}
         brush={brush}
         renderTick={renderTick}
         onGridMutated={bumpRender}
       />
+
+    <div style={{ marginTop: 12, padding: 12, border: "1px solid #ccc", borderRadius: 8 }}>
+          <div style={{ fontWeight: 600, marginBottom: 10 }}>Board generation</div>
+
+          {/* Shared seed controls (apply to BOTH generators) */}
+          <div style={{ marginBottom: 10, padding: 10, border: "1px solid #ddd", borderRadius: 6 }}>
+            <div style={{ fontWeight: 500, marginBottom: 8 }}>
+              Seed settings (used by both Random Terrain and Maze)
+            </div>
+
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
+              <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <input
+                  type="radio"
+                  name="seedMode"
+                  checked={seedMode === "auto"}
+                  onChange={() => setSeedMode("auto")}
+                />
+                Auto seed (new seed every click)
+              </label>
+
+              <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <input
+                  type="radio"
+                  name="seedMode"
+                  checked={seedMode === "manual"}
+                  onChange={() => setSeedMode("manual")}
+                />
+                Manual seed
+              </label>
+
+              <label style={{ display: "flex", alignItems: "center", gap: 6, opacity: seedMode === "manual" ? 1 : 0.6 }}>
+                Seed:
+                <input
+                  type="text"
+                  value={manualSeedText}
+                  onChange={(e) => setManualSeedText(e.target.value)}
+                  disabled={seedMode !== "manual"}
+                  placeholder="e.g. 123"
+                  style={{ width: 120 }}
+                />
+              </label>
+            </div>
+
+            <div style={{ fontSize: 12, opacity: 0.8, marginTop: 6 }}>
+              In Auto mode, each button press generates a fresh seed and a new board. In Manual mode, the entered seed is reused for reproducible layouts.
+            </div>
+          </div>
+
+          {/* Random terrain only settings */}
+          <div style={{ marginBottom: 10, padding: 10, border: "1px solid #ddd", borderRadius: 6 }}>
+            <div style={{ fontWeight: 500, marginBottom: 8 }}>
+              Random terrain settings only
+            </div>
+
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
+              <label>
+                Block density:
+                <input
+                  type="number"
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  value={blockedProb}
+                  onChange={(e) => setBlockedProb(Number(e.target.value))}
+                  style={{ marginLeft: 8, width: 90 }}
+                />
+              </label>
+
+              <label>
+                Smooth passes:
+                <input
+                  type="number"
+                  min={0}
+                  max={3}
+                  step={1}
+                  value={smoothPasses}
+                  onChange={(e) => setSmoothPasses(Number(e.target.value))}
+                  style={{ marginLeft: 8, width: 70 }}
+                />
+              </label>
+            </div>
+          </div>
+
+          {/* Buttons + seed outputs */}
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+            <button onClick={handleGenerateRandomTerrain}>
+              Generate random terrain
+            </button>
+
+            <button onClick={handleGenerateMaze}>
+              Generate maze
+            </button>
+          </div>
+
+          <div style={{ marginTop: 10, fontSize: 13, lineHeight: 1.6 }}>
+            <div>
+              <strong>Last random terrain seed used:</strong>{" "}
+              {lastTerrainSeed !== null ? lastTerrainSeed : "none yet"}
+            </div>
+            <div>
+              <strong>Last maze seed used:</strong>{" "}
+              {lastMazeSeed !== null ? lastMazeSeed : "none yet"}
+            </div>
+          </div>
+        </div>
+
     </div>
   );
 }
+
+

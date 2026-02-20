@@ -53,9 +53,12 @@ export class GridState {
   }
 
   setBlocked(index: number, isBlocked: boolean) {
-    const i = clampInt(index, 0, this.cellCount() - 1);
-    if (i === this.startIndex || i === this.endIndex) return;
-    this.blocked[i] = isBlocked ? 1 : 0;
+    if (index < 0 || index >= this.cellCount()) return;
+
+    // prevent blocking start/end, but still allow unblocking them
+    if (isBlocked && (index === this.startIndex || index === this.endIndex)) return;
+
+    this.blocked[index] = isBlocked ? 1 : 0;
   }
 
   reset() {
