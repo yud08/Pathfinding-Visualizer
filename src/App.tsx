@@ -51,7 +51,7 @@ export default function App() {
   const [mode, setMode] = useState<"weight" | "blocked">("weight");
   const [shape, setShape] = useState<"square" | "circle">("square");
   const [brushSize, setBrushSize] = useState(1);
-  const [paintWeight, setPaintWeight] = useState(0);
+  const [paintWeight, setPaintWeight] = useState(500);
   const [paintBlocked, setPaintBlocked] = useState(true);
 
   brush.mode = mode;
@@ -171,16 +171,18 @@ export default function App() {
         )}
 
         {mode === "blocked" && (
-          <label>
-            Block?
-            <input
-              type="checkbox"
-              checked={paintBlocked}
-              onChange={(e) => setPaintBlocked(e.target.checked)}
-              style={{ marginLeft: 8 }}
-            />
+          <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            Brush type:
+            <select
+              value={paintBlocked ? "place" : "erase"}
+              onChange={(e) => setPaintBlocked(e.target.value === "place")}
+            >
+              <option value="place">Place walls</option>
+              <option value="erase">Erase walls</option>
+            </select>
           </label>
         )}
+
 
         <button
           onClick={() => {
