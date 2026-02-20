@@ -4,7 +4,6 @@ import { useMemo, useState } from "react";
 import CanvasGrid from "./ui/CanvasGrid";
 import { GridState, GRID_MIN, GRID_MAX, clampInt } from "./grid/model";
 import { BrushTool } from "./grid/brush";
-import { useEffect, useRef } from "react";
 import { generateRandomTerrain } from "./grid/generator/randomTerrain";
 import { generateMaze } from "./grid/generator/maze";
 
