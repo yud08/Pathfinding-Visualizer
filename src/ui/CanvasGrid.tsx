@@ -31,7 +31,6 @@ export default function CanvasGrid({
     if (!ctx) return;
 
     drawGrid(ctx, canvas.width, canvas.height, grid, {
-      showGridLines: true,
       overlay,
     });
 
