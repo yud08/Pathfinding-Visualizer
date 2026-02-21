@@ -2,7 +2,6 @@ import { GridState } from "../grid/model";
 import type { UnweightedOverlay } from "../algo/unweighted";
 
 type DrawGridOptions = {
-  showGridLines?: boolean;
   overlay?: UnweightedOverlay | null;
 };
 
@@ -63,7 +62,7 @@ export function drawGrid(
   grid: GridState,
   options: DrawGridOptions = {}
 ) {
-  const { showGridLines = true, overlay = null } = options;
+  const { overlay = null } = options;
 
   // recompute integer pixel boundaries to avoid fractional seams 
   const xBound: number[] = new Array(grid.width + 1);
