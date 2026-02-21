@@ -1,7 +1,9 @@
 import { GridState } from "../grid/model";
+import type { UnweightedOverlay } from "../algo/unweighted";
 
-export type RenderOptions = {
+type DrawGridOptions = {
   showGridLines?: boolean;
+  overlay?: UnweightedOverlay | null;
 };
 
 function weightToColor(w: number): string {
@@ -9,14 +11,59 @@ function weightToColor(w: number): string {
   return `rgb(${t},${t},255)`;
 }
 
+function drawFinalPathLine(
+  ctx: CanvasRenderingContext2D,
+  xBound: number[],
+  yBound: number[],
+  grid: GridState,
+  path: number[]
+) {
+  if (path.length < 2) return;
+
+  const cellW = xBound[1] - xBound[0];
+  const cellH = yBound[1] - yBound[0];
+  const lw = Math.max(2, Math.min(cellW, cellH) * 0.35);
+
+  ctx.save();
+  ctx.lineJoin = "round";
+  ctx.lineCap = "round";
+
+  ctx.beginPath();
+
+  for (let k = 0; k < path.length; k++) {
+    const idx = path[k];
+    const r = Math.floor(idx / grid.width);
+    const c = idx % grid.width;
+
+    // centre of this cell
+    const cx = (xBound[c] + xBound[c + 1]) / 2;
+    const cy = (yBound[r] + yBound[r + 1]) / 2;
+
+    if (k === 0) ctx.moveTo(cx, cy);
+    else ctx.lineTo(cx, cy);
+  }
+
+  // outline for contrast
+  ctx.strokeStyle = "rgba(0,0,0,0.35)";
+  ctx.lineWidth = lw * 1.4;
+  ctx.stroke();
+
+  // yellow path
+  ctx.strokeStyle = "#ffd400";
+  ctx.lineWidth = lw;
+  ctx.stroke();
+
+  ctx.restore();
+}
+
 export function drawGrid(
   ctx: CanvasRenderingContext2D,
   canvasW: number,
   canvasH: number,
   grid: GridState,
-  _opts: RenderOptions = {}
+  options: DrawGridOptions = {}
 ) {
-  ctx.clearRect(0, 0, canvasW, canvasH);
+  const { showGridLines = true, overlay = null } = options;
 
   // recompute integer pixel boundaries to avoid fractional seams 
   const xBound: number[] = new Array(grid.width + 1);
@@ -46,10 +93,24 @@ export function drawGrid(
       else if (i === grid.endIndex) ctx.fillStyle = "#a00000";
       else if (grid.blocked[i]) ctx.fillStyle = "#202020";
       else ctx.fillStyle = weightToColor(grid.weights[i]);
-
+      if (overlay && !(i === grid.startIndex || i === grid.endIndex)) {
+        if (overlay.currentIndex === i) {
+          ctx.fillStyle = "#f59e0b"; // current (orange)
+        } else if (overlay.frontier[i]) {
+          ctx.fillStyle = "#38bdf8"; // frontier (blue)
+        } else if (overlay.visited[i]) {
+          ctx.fillStyle = "#93c5fd"; // visited (light blue)
+        }
+      }
       ctx.fillRect(x0, y0, w, h);
+      
     }
   }
+
+  if (overlay && overlay.finalPath && overlay.finalPath.length > 0) {
+    drawFinalPathLine(ctx, xBound, yBound, grid, overlay.finalPath);
+  }
+
   ctx.strokeStyle = "rgba(0,0,0,0.2)";
   ctx.lineWidth = 1;
 
@@ -67,5 +128,6 @@ export function drawGrid(
     ctx.lineTo(canvasW, y);
   }
 
+  
   ctx.stroke();
 }

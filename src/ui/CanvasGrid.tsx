@@ -2,15 +2,25 @@ import { useEffect, useRef } from "react";
 import { GridState } from "../grid/model";
 import { drawGrid } from "../render/canvasRenderer";
 import { BrushTool } from "../grid/brush";
+import type { UnweightedOverlay } from "../algo/unweighted";
 
 type Props = {
   grid: GridState;
   brush: BrushTool;
   renderTick: number;           // tells useEffect to redraw
   onGridMutated: () => void;    // lets App increment renderTick
+  overlay?: UnweightedOverlay | null;
+  canEdit?: boolean;
 };
 
-export default function CanvasGrid({ grid, brush, renderTick, onGridMutated }: Props) {
+export default function CanvasGrid({
+  grid,
+  brush,
+  renderTick,
+  onGridMutated,
+  overlay = null,
+  canEdit = true,
+}: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const paintingRef = useRef(false);
 
@@ -22,9 +32,10 @@ export default function CanvasGrid({ grid, brush, renderTick, onGridMutated }: P
 
     drawGrid(ctx, canvas.width, canvas.height, grid, {
       showGridLines: true,
+      overlay,
     });
 
-  }, [grid, renderTick]);
+  }, [grid, renderTick, overlay]);
 
   return (
     <div style={{ marginTop: 16, display: "flex", justifyContent: "center" }}>
@@ -34,6 +45,7 @@ export default function CanvasGrid({ grid, brush, renderTick, onGridMutated }: P
         height={800}
         style={{ border: "1px solid #888", background: "white", touchAction: "none" }}
         onPointerDown={(e) => {
+          if (!canEdit) return;
           const canvas = canvasRef.current;
           if (!canvas) return;
           paintingRef.current = true;
@@ -45,6 +57,7 @@ export default function CanvasGrid({ grid, brush, renderTick, onGridMutated }: P
           onGridMutated();
         }}
         onPointerMove={(e) => {
+          if (!canEdit) return;
           if (!paintingRef.current) return;
           const canvas = canvasRef.current;
           if (!canvas) return;

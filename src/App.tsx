@@ -1,11 +1,18 @@
 // src/App.tsx
 import "./App.css";
-import { useMemo, useState } from "react";
+import { useMemo, useEffect, useRef, useState } from "react";
 import CanvasGrid from "./ui/CanvasGrid";
 import { GridState, GRID_MIN, GRID_MAX, clampInt } from "./grid/model";
 import { BrushTool } from "./grid/brush";
 import { generateRandomTerrain } from "./grid/generator/randomTerrain";
 import { generateMaze } from "./grid/generator/maze";
+import {
+  createUnweightedRunner,
+  validateUnweightedRun,
+  type UnweightedAlgo,
+  type UnweightedOverlay,
+  type UnweightedRunner,
+} from "./algo/unweighted";
 
 function commitDim(
   raw: string,
@@ -95,6 +102,7 @@ export default function App() {
   }
 
   function handleGenerateRandomTerrain() {
+    resetAlgorithmRun("Grid changed. Algorithm run cleared.");
     const seed = getSeedForGeneration();
 
     generateRandomTerrain(grid, {
@@ -110,6 +118,7 @@ export default function App() {
   }
 
   function handleGenerateMaze() {
+    resetAlgorithmRun("Grid changed. Algorithm run cleared.");
     const seed = getSeedForGeneration();
 
     generateMaze(grid, { seed });
@@ -117,7 +126,146 @@ export default function App() {
     setLastMazeSeed(seed);
     bumpRender();
   }
+  const [selectedAlgo, setSelectedAlgo] = useState<UnweightedAlgo>("bfs");
 
+  const [runStatus, setRunStatus] = useState<
+    "idle" | "running" | "paused" | "finished" | "no-path" | "error"
+  >("idle");
+  const [runMessage, setRunMessage] = useState("No algorithm running.");
+
+  const [stepDelayMs, setStepDelayMs] = useState(40);
+  const [algoOverlay, setAlgoOverlay] = useState<UnweightedOverlay | null>(null);
+
+  const runnerRef = useRef<UnweightedRunner | null>(null);
+  const timerRef = useRef<number | null>(null);
+
+function stopRunTimer() {
+  if (timerRef.current !== null) {
+    window.clearInterval(timerRef.current);
+    timerRef.current = null;
+  }
+}
+
+function resetAlgorithmRun(reason = "No algorithm running.") {
+  stopRunTimer();
+  runnerRef.current = null;
+  setAlgoOverlay(null);
+  setRunStatus("idle");
+  setRunMessage(reason);
+}
+
+function stepAlgorithmOnce() {
+  const runner = runnerRef.current;
+  if (!runner) return;
+
+  try {
+    const outcome = runner.step();
+
+    // typed arrays are mutated in-place -> force canvas redraw
+    bumpRender();
+
+    if (outcome === "continue") {
+      const isRunning = timerRef.current !== null;
+      setRunStatus(isRunning ? "running" : "paused");
+      setRunMessage(`${runner.algo.toUpperCase()} running... Step ${runner.stepCount}`);
+      return;
+    }
+
+  if (outcome === "found") {
+    stopRunTimer();
+    setRunStatus("finished");
+
+    const pathLen =
+      runner.overlay.finalPath && runner.overlay.finalPath.length > 0
+        ? runner.overlay.finalPath.length
+        : 0;
+
+    setRunMessage(
+      `${runner.algo.toUpperCase()} finished: end found, final path length is ${pathLen}, found in ${runner.stepCount} step(s)`
+    );
+    return;
+  }
+
+    // no-path
+    stopRunTimer();
+    setRunStatus("no-path");
+    setRunMessage(`${runner.algo.toUpperCase()} stopped: no path exists (frontier empty).`);
+  } catch (err) {
+    stopRunTimer();
+    setRunStatus("error");
+    setRunMessage(err instanceof Error ? err.message : "Unexpected error during run.");
+  }
+}
+
+function initialiseAlgorithmRun(algo: UnweightedAlgo) {
+  // Always wipe any previous run first
+  resetAlgorithmRun("Initialising new run...");
+
+  const validationError = validateUnweightedRun(grid);
+  if (validationError) {
+    setRunStatus("error");
+    setRunMessage(validationError);
+    return;
+  }
+
+  try {
+    const runner = createUnweightedRunner(algo, grid);
+    runnerRef.current = runner;
+
+    // Show overlay immediately (start/frontier etc.)
+    setAlgoOverlay(runner.overlay);
+
+    setRunStatus("paused");
+    setRunMessage(`${algo.toUpperCase()} initialised. Ready to play.`);
+    bumpRender();
+  } catch (err) {
+    runnerRef.current = null;
+    setAlgoOverlay(null);
+    setRunStatus("error");
+    setRunMessage(err instanceof Error ? err.message : "Failed to initialise run.");
+  }
+}
+
+function playAlgorithm() {
+  if (!runnerRef.current) {
+    setRunMessage("Initialise a BFS/DFS run first.");
+    return;
+  }
+
+  stopRunTimer();
+  setRunStatus("running");
+  setRunMessage(`${runnerRef.current.algo.toUpperCase()} running...`);
+
+  timerRef.current = window.setInterval(() => {
+    stepAlgorithmOnce();
+  }, stepDelayMs);
+}
+
+function pauseAlgorithm() {
+  stopRunTimer();
+  if (runnerRef.current) {
+    setRunStatus("paused");
+    setRunMessage(`${runnerRef.current.algo.toUpperCase()} paused.`);
+  }
+}
+function handleGridMutated() {
+  if (runStatus !== "idle") {
+    resetAlgorithmRun("Board edited. Previous BFS/DFS run cleared.");
+  }
+  bumpRender();
+}
+const didResizeMountRef = useRef(false);
+
+useEffect(() => {
+  // Skip first render 
+  if (!didResizeMountRef.current) {
+    didResizeMountRef.current = true;
+    return;
+  }
+
+  resetAlgorithmRun("Grid resized. Algorithm run cleared.");
+  bumpRender();
+}, [w, h]);
 
   return (
     <div style={{ padding: 16 }}>
@@ -243,6 +391,7 @@ export default function App() {
         <button
           onClick={() => {
             grid.reset();
+            resetAlgorithmRun("Grid changed. Algorithm run cleared.");
             bumpRender();
           }}
         >
@@ -250,12 +399,72 @@ export default function App() {
         </button>
       </div>
 
-      <CanvasGrid
-        grid={grid}
-        brush={brush}
-        renderTick={renderTick}
-        onGridMutated={bumpRender}
-      />
+      <div style={{ marginTop: 12, padding: 12, border: "1px solid #ccc", borderRadius: 8 }}>
+        <div style={{ fontWeight: 600, marginBottom: 10 }}>
+          Algorithm visualisation options
+        </div>
+
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center", marginBottom: 10 }}>
+          <label>
+            Algorithm:
+            <select
+              value={selectedAlgo}
+              onChange={(e) => setSelectedAlgo(e.target.value as UnweightedAlgo)}
+              style={{ marginLeft: 8 }}
+            >
+              <option value="bfs">BFS</option>
+              <option value="dfs">DFS</option>
+            </select>
+          </label>
+
+          <label>
+            Step delay (ms):
+            <input
+              type="number"
+              min={1}
+              max={1000}
+              value={stepDelayMs}
+              onChange={(e) => setStepDelayMs(Math.max(1, Number(e.target.value) || 1))}
+              style={{ marginLeft: 8, width: 80 }}
+            />
+          </label>
+        </div>
+
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
+          <button
+            onClick={() => {
+              initialiseAlgorithmRun(selectedAlgo);
+              // If initialise succeeded, runnerRef will be set.
+              // Delay 0 lets React state update first; safe in practice.
+              setTimeout(() => playAlgorithm(), 0);
+            }}
+          >
+            Visualize {selectedAlgo.toUpperCase()}
+          </button>
+
+          <button onClick={pauseAlgorithm}>Pause</button>
+          <button onClick={playAlgorithm}>Unpause</button>
+          <button onClick={stepAlgorithmOnce}>Step once</button>
+          <button onClick={() => resetAlgorithmRun("Algorithm run reset.")}>Reset run</button>
+        </div>
+
+        <div style={{ fontSize: 13, lineHeight: 1.6 }}>
+          <div><strong>Status:</strong> {runStatus}</div>
+          <div><strong>Message:</strong> {runMessage}</div>
+          <div style={{ opacity: 0.8 }}>
+            Editing is disabled while the algorithm is running.
+          </div>
+        </div>
+      </div>
+      
+    <CanvasGrid
+      grid={grid}
+      brush={brush}
+      renderTick={renderTick}
+      onGridMutated={handleGridMutated}
+      overlay={algoOverlay}
+      canEdit={runStatus !== "running"}
+    />
 
     <div style={{ marginTop: 12, padding: 12, border: "1px solid #ccc", borderRadius: 8 }}>
           <div style={{ fontWeight: 600, marginBottom: 10 }}>Board generation</div>
