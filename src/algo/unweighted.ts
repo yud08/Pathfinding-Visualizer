@@ -39,25 +39,6 @@ function createOverlay(cellCount: number): UnweightedOverlay {
   };
 }
 
-function listNeighbours4(grid: GridState, index: number): number[] {
-  const { row, col } = grid.coord(index);
-  const out: number[] = [];
-
-  const candidates = [
-    { r: row - 1, c: col }, // up
-    { r: row, c: col + 1 }, // right
-    { r: row + 1, c: col }, // down
-    { r: row, c: col - 1 }, // left
-  ];
-
-  for (const p of candidates) {
-    if (!grid.inBounds(p.r, p.c)) continue;
-    out.push(grid.index(p.r, p.c));
-  }
-
-  return out;
-}
-
 function reconstructPath(parent: Int32Array, startIndex: number, endIndex: number): number[] {
   const path: number[] = [];
   let cur = endIndex;
