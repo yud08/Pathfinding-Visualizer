@@ -13,6 +13,12 @@ import {
   type UnweightedOverlay,
   type UnweightedRunner,
 } from "./algo/unweighted";
+import type { MovementMode } from "./algo/neighbours";
+import type { HeuristicKind } from "./algo/heuristics";
+import type { WeightedAlgo, WeightedOverlay, WeightedRunner } from "./algo/weighted";
+import { createWeightedRunner, validateWeightedRun, validateHeuristicWeight } from "./algo/weighted";
+
+type AlgoChoice = UnweightedAlgo | WeightedAlgo;
 
 function commitDim(
   raw: string,
@@ -126,7 +132,11 @@ export default function App() {
     setLastMazeSeed(seed);
     bumpRender();
   }
-  const [selectedAlgo, setSelectedAlgo] = useState<UnweightedAlgo>("bfs");
+  const [selectedAlgo, setSelectedAlgo] = useState<AlgoChoice>("BFS");
+
+  const [movement, setMovement] = useState<MovementMode>("4");
+  const [heuristicKind, setHeuristicKind] = useState<HeuristicKind>("manhattan");
+  const [heuristicWeightText, setHeuristicWeightText] = useState("1");
 
   const [runStatus, setRunStatus] = useState<
     "idle" | "running" | "paused" | "finished" | "no-path" | "error"
@@ -134,9 +144,9 @@ export default function App() {
   const [runMessage, setRunMessage] = useState("No algorithm running.");
 
   const [stepDelayMs, setStepDelayMs] = useState(40);
-  const [algoOverlay, setAlgoOverlay] = useState<UnweightedOverlay | null>(null);
+  const [algoOverlay, setAlgoOverlay] = useState<(UnweightedOverlay | WeightedOverlay) | null>(null);
 
-  const runnerRef = useRef<UnweightedRunner | null>(null);
+  const runnerRef = useRef<(UnweightedRunner | WeightedRunner) | null>(null);
   const timerRef = useRef<number | null>(null);
 
 function stopRunTimer() {
@@ -197,30 +207,60 @@ function stepAlgorithmOnce() {
   }
 }
 
-function initialiseAlgorithmRun(algo: UnweightedAlgo) {
-  // Always wipe any previous run first
+function initialiseAlgorithmRun(algo: AlgoChoice) {
   resetAlgorithmRun("Initialising new run...");
 
-  const validationError = validateUnweightedRun(grid);
-  if (validationError) {
+  // BFS / DFS
+  if (algo === "BFS" || algo === "DFS") {
+    const validationError = validateUnweightedRun(grid);
+    if (validationError) {
+      setRunStatus("error");
+      setRunMessage(validationError);
+      return;
+    }
+    try {
+      const runner = createUnweightedRunner(algo, grid, { movement });
+      runnerRef.current = runner;
+      setAlgoOverlay(runner.overlay);
+      setRunStatus("paused");
+      setRunMessage(`${algo.toUpperCase()} initialised. Ready to play.`);
+      bumpRender();
+      return;
+    } catch (err) {
+      setRunStatus("error");
+      setRunMessage(err instanceof Error ? err.message : "Failed to initialise run.");
+      return;
+    }
+  }
+
+  // Dijkstra / A*
+  const gridErr = validateWeightedRun(grid);
+  if (gridErr) {
     setRunStatus("error");
-    setRunMessage(validationError);
+    setRunMessage(gridErr);
+    return;
+  }
+
+  const hw = Number(heuristicWeightText.trim());
+  const hwErr = validateHeuristicWeight(hw);
+  if (hwErr) {
+    setRunStatus("error");
+    setRunMessage(hwErr);
     return;
   }
 
   try {
-    const runner = createUnweightedRunner(algo, grid);
+    const runner = createWeightedRunner(algo, grid, {
+      movement,
+      heuristic: heuristicKind,
+      heuristicWeight: hw,
+    });
     runnerRef.current = runner;
-
-    // Show overlay immediately (start/frontier etc.)
     setAlgoOverlay(runner.overlay);
-
     setRunStatus("paused");
     setRunMessage(`${algo.toUpperCase()} initialised. Ready to play.`);
     bumpRender();
   } catch (err) {
-    runnerRef.current = null;
-    setAlgoOverlay(null);
     setRunStatus("error");
     setRunMessage(err instanceof Error ? err.message : "Failed to initialise run.");
   }
@@ -228,7 +268,7 @@ function initialiseAlgorithmRun(algo: UnweightedAlgo) {
 
 function playAlgorithm() {
   if (!runnerRef.current) {
-    setRunMessage("Initialise a BFS/DFS run first.");
+    setRunMessage("Initialise a algorithm run first.");
     return;
   }
 
@@ -250,7 +290,7 @@ function pauseAlgorithm() {
 }
 function handleGridMutated() {
   if (runStatus !== "idle") {
-    resetAlgorithmRun("Board edited. Previous BFS/DFS run cleared.");
+    resetAlgorithmRun("Board edited. Previous algorithm run cleared.");
   }
   bumpRender();
 }
@@ -409,13 +449,53 @@ useEffect(() => {
             Algorithm:
             <select
               value={selectedAlgo}
-              onChange={(e) => setSelectedAlgo(e.target.value as UnweightedAlgo)}
+              onChange={(e) => setSelectedAlgo(e.target.value as AlgoChoice)}
               style={{ marginLeft: 8 }}
             >
-              <option value="bfs">BFS</option>
-              <option value="dfs">DFS</option>
+              <option value="BFS">BFS</option>
+              <option value="DFS">DFS</option>
+              <option value="Dijkstra">Dijkstra</option>
+              <option value="A*">A*</option>
             </select>
           </label>
+
+          {/* <label>
+            Movement:
+            <select
+              value={movement}
+              onChange={(e) => setMovement(e.target.value as MovementMode)}
+              style={{ marginLeft: 8 }}
+            >
+              <option value="4">4-direction</option>
+              <option value="8">8-direction</option>
+            </select>
+          </label>   */}
+
+          {selectedAlgo === "A*" && (
+            <>
+              <label>
+                Heuristic:
+                <select
+                  value={heuristicKind}
+                  onChange={(e) => setHeuristicKind(e.target.value as HeuristicKind)}
+                  style={{ marginLeft: 8 }}
+                >
+                  <option value="manhattan">Manhattan</option>
+                  <option value="octile">Octile</option>
+                </select>
+              </label>
+
+              <label>
+                Heuristic weight:
+                <input
+                  type="text"
+                  value={heuristicWeightText}
+                  onChange={(e) => setHeuristicWeightText(e.target.value)}
+                  style={{ marginLeft: 8, width: 80 }}
+                />
+              </label>
+            </>
+          )}
 
           <label>
             Step delay (ms):
@@ -434,18 +514,22 @@ useEffect(() => {
           <button
             onClick={() => {
               initialiseAlgorithmRun(selectedAlgo);
-              // If initialise succeeded, runnerRef will be set.
-              // Delay 0 lets React state update first; safe in practice.
               setTimeout(() => playAlgorithm(), 0);
             }}
           >
-            Visualize {selectedAlgo.toUpperCase()}
+            Visualize {selectedAlgo}
           </button>
 
           <button onClick={pauseAlgorithm}>Pause</button>
           <button onClick={playAlgorithm}>Unpause</button>
           <button onClick={stepAlgorithmOnce}>Step once</button>
           <button onClick={() => resetAlgorithmRun("Algorithm run reset.")}>Reset run</button>
+          <button
+            type="button"
+            onClick={() => setMovement((prev) => (prev === "4" ? "8" : "4"))}
+          >
+            Movement: {movement === "4" ? "4-direction" : "8-direction"}
+          </button>
         </div>
 
         <div style={{ fontSize: 13, lineHeight: 1.6 }}>

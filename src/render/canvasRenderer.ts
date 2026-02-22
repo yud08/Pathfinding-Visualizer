@@ -1,8 +1,9 @@
 import { GridState } from "../grid/model";
 import type { UnweightedOverlay } from "../algo/unweighted";
+import type { WeightedOverlay } from "../algo/weighted";
 
 type DrawGridOptions = {
-  overlay?: UnweightedOverlay | null;
+  overlay?: (UnweightedOverlay | WeightedOverlay) | null;
 };
 
 function weightToColor(w: number): string {

@@ -1,6 +1,7 @@
 import type { GridState } from "../grid/model";
+import { listNeighbours, type MovementMode } from "./neighbours";
 
-export type UnweightedAlgo = "bfs" | "dfs";
+export type UnweightedAlgo = "BFS" | "DFS";
 export type RunStepOutcome = "continue" | "found" | "no-path";
 
 export type UnweightedOverlay = {
@@ -19,6 +20,10 @@ export type UnweightedRunner = {
   parent: Int32Array;
   stepCount: number;
   step: () => RunStepOutcome;
+};
+
+export type UnweightedSettings = {
+  movement: MovementMode; // "4" or "8"
 };
 
 function createOverlay(cellCount: number): UnweightedOverlay {
@@ -80,7 +85,11 @@ export function validateUnweightedRun(grid: GridState): string | null {
   return null;
 }
 
-export function createUnweightedRunner(algo: UnweightedAlgo, grid: GridState): UnweightedRunner {
+export function createUnweightedRunner(
+  algo: UnweightedAlgo,
+  grid: GridState,
+  settings: UnweightedSettings
+): UnweightedRunner {
   const validationError = validateUnweightedRun(grid);
   if (validationError) throw new Error(validationError);
 
@@ -100,14 +109,14 @@ export function createUnweightedRunner(algo: UnweightedAlgo, grid: GridState): U
   overlay.frontier[start] = 1;
 
   function frontierIsEmpty(): boolean {
-    if (algo === "bfs") return frontierHead >= frontierData.length;
+    if (algo === "BFS") return frontierHead >= frontierData.length;
     return frontierData.length === 0;
   }
 
   function popFrontier(): number | null {
     if (frontierIsEmpty()) return null;
 
-    if (algo === "bfs") {
+    if (algo === "BFS") {
       const value = frontierData[frontierHead++];
       if (frontierHead > 2048 && frontierHead * 2 > frontierData.length) {
         frontierData.splice(0, frontierHead);
@@ -148,7 +157,7 @@ export function createUnweightedRunner(algo: UnweightedAlgo, grid: GridState): U
         return "found";
       }
 
-      const neighbours = listNeighbours4(grid, current);
+      const neighbours = listNeighbours(grid, current, settings.movement);
       for (const nb of neighbours) {
         if (grid.blocked[nb]) continue;
         if (discovered[nb]) continue;
