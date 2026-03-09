@@ -11,6 +11,7 @@ type Props = {
   onGridMutated: () => void;    // lets App increment renderTick
   overlay?: UnweightedOverlay | null;
   canEdit?: boolean;
+  onCellClick?: (index: number) => void;
 };
 
 export default function CanvasGrid({
@@ -20,6 +21,7 @@ export default function CanvasGrid({
   onGridMutated,
   overlay = null,
   canEdit = true,
+  onCellClick,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const paintingRef = useRef(false);
@@ -44,12 +46,12 @@ export default function CanvasGrid({
         height={800}
         style={{ border: "1px solid #888", background: "white", touchAction: "none" }}
         onPointerDown={(e) => {
-          if (!canEdit) return;
           const canvas = canvasRef.current;
           if (!canvas) return;
-          paintingRef.current = true;
-
           const idx = indexFromEvent(e, grid, canvas);
+          if (idx !== null && onCellClick) onCellClick(idx);
+          if (!canEdit) return;
+          paintingRef.current = true;
           if (idx === null) return;
 
           brush.apply(grid, idx);

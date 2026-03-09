@@ -17,6 +17,7 @@ import type { MovementMode } from "./algo/neighbours";
 import type { HeuristicKind } from "./algo/heuristics";
 import type { WeightedAlgo, WeightedOverlay, WeightedRunner } from "./algo/weighted";
 import { createWeightedRunner, validateWeightedRun, validateHeuristicWeight } from "./algo/weighted";
+import HelpModal from "./ui/HelpModal";
 
 type AlgoChoice = UnweightedAlgo | WeightedAlgo;
 
@@ -50,6 +51,22 @@ function commitDim(
 }
 
 export default function App() {
+  const [theme, setTheme] = useState<"dark" | "light">("dark");
+
+  useEffect(() => {
+    document.documentElement.setAttribute(
+      "data-theme", theme === "light" ? "light" : ""
+    );
+  }, [theme]);
+
+  const [showHelp, setShowHelp] = useState(false);
+
+  const [inspectedIndex, setInspectedIndex] = useState<number | null>(null);
+
+  const [compareMode, setCompareMode] = useState(false);
+  const [compareAlgo, setCompareAlgo] = useState<AlgoChoice>("Dijkstra");
+  const [overlayB,    setOverlayB]    = useState<(UnweightedOverlay | WeightedOverlay) | null>(null);
+
   const [w, setW] = useState(25);
   const [h, setH] = useState(25);
 
@@ -78,6 +95,7 @@ export default function App() {
 
   const grid = useMemo(() => new GridState(w, h), [w, h]);
 
+  
   const [seedMode, setSeedMode] = useState<"auto" | "manual">("auto");
   const [manualSeedText, setManualSeedText] = useState("123");
 
@@ -88,6 +106,63 @@ export default function App() {
   // Random terrain only settings
   const [blockedProb, setBlockedProb] = useState(0.12);
   const [smoothPasses, setSmoothPasses] = useState(1);
+
+  function handleCellClick(index: number) {
+    setInspectedIndex(prev => prev === index ? null : index);
+  }
+
+  function renderInspector() {
+    if (inspectedIndex === null) return null;
+    const { row, col } = grid.coord(inspectedIndex);
+    const weight = grid.weights[inspectedIndex];
+    const blocked = grid.blocked[inspectedIndex] ? "Yes" : "No";
+
+    const rows: { label: string; val: string }[] = [
+      { label: "Cell",    val: `(${row}, ${col})` },
+      { label: "Weight",  val: String(weight) },
+      { label: "Wall",    val: blocked },
+    ];
+
+    if (algoOverlay && "gCost" in algoOverlay) {
+      const g = algoOverlay.gCost[inspectedIndex];
+      const h = algoOverlay.hCost[inspectedIndex];
+      const f = algoOverlay.fCost[inspectedIndex];
+      rows.push(
+        { label: "g, shortest dist from start", val: isFinite(g) ? g.toFixed(2) : "infinity(not reached)" },
+        { label: "h, heuristic dist to end",    val: isFinite(h) ? h.toFixed(2) : "infinity" },
+        { label: "f = g + h, priority",         val: isFinite(f) ? f.toFixed(2) : "infinity" },
+      );
+    } else if (algoOverlay) {
+      const visited  = algoOverlay.visited[inspectedIndex];
+      const frontier = algoOverlay.frontier[inspectedIndex];
+      rows.push(
+        { label: "Visited",            val: visited  ? "Yes" : "No" },
+        { label: "In frontier",        val: frontier ? "Yes" : "No" },
+        { label: "Shortest dist from start", val: visited || frontier ? String(algoOverlay.parent[inspectedIndex] >= 0 ? "N/A" : "0(start)") : "not reached" },
+      );
+    }
+
+    return (
+      <div style={{ marginTop: 8, padding: 10, border: "1px solid #888", borderRadius: 6, fontSize: 12, display: "inline-block" }}>
+        <div style={{ fontWeight: 600, marginBottom: 6 }}>Cell Inspector, click same cell again to dismiss</div>
+        {rows.map(({ label, val }) => (
+          <div key={label} style={{ display: "flex", gap: 16, marginBottom: 2 }}>
+            <span style={{ opacity: 0.7, minWidth: 200 }}>{label}</span>
+            <span style={{ fontFamily: "monospace", fontWeight: 600 }}>{val}</span>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  function cloneGrid(src: GridState): GridState {
+    const dst = new GridState(src.width, src.height);
+    dst.weights.set(src.weights);
+    dst.blocked.set(src.blocked);
+    dst.startIndex = src.startIndex;
+    dst.endIndex   = src.endIndex;
+    return dst;
+  }
 
   function makeAutoSeed(): number {
     return ((Date.now() ^ Math.floor(Math.random() * 0x7fffffff)) >>> 0);
@@ -110,6 +185,7 @@ export default function App() {
   function handleGenerateRandomTerrain() {
     resetAlgorithmRun("Grid changed. Algorithm run cleared.");
     const seed = getSeedForGeneration();
+    setCompareMode(false);
 
     generateRandomTerrain(grid, {
       seed,
@@ -126,6 +202,7 @@ export default function App() {
   function handleGenerateMaze() {
     resetAlgorithmRun("Grid changed. Algorithm run cleared.");
     const seed = getSeedForGeneration();
+    setCompareMode(false);
 
     generateMaze(grid, { seed });
 
@@ -149,6 +226,15 @@ export default function App() {
   const runnerRef = useRef<(UnweightedRunner | WeightedRunner) | null>(null);
   const timerRef = useRef<number | null>(null);
 
+  const runnerBRef   = useRef<(UnweightedRunner | WeightedRunner) | null>(null);
+  const gridBRef     = useRef<GridState | null>(null);
+  const startTimeRef = useRef<number | null>(null);
+
+  const [metricTime,    setMetricTime]    = useState<number | null>(null);
+  const [metricNodes,   setMetricNodes]   = useState<number | null>(null);
+  const [metricPathLen, setMetricPathLen] = useState<number | null>(null);
+  const [metricCost,    setMetricCost]    = useState<number | null>(null);
+
 function stopRunTimer() {
   if (timerRef.current !== null) {
     window.clearInterval(timerRef.current);
@@ -158,54 +244,80 @@ function stopRunTimer() {
 
 function resetAlgorithmRun(reason = "No algorithm running.") {
   stopRunTimer();
-  runnerRef.current = null;
+  runnerRef.current  = null;
+  runnerBRef.current = null;
   setAlgoOverlay(null);
+  setOverlayB(null);
   setRunStatus("idle");
   setRunMessage(reason);
+  setMetricTime(null);
+  setMetricNodes(null);
+  setMetricPathLen(null);
+  setMetricCost(null);
 }
 
-function stepAlgorithmOnce() {
-  const runner = runnerRef.current;
-  if (!runner) return;
 
-  try {
-    const outcome = runner.step();
+  function stepAlgorithmOnce() {
+    const runner = runnerRef.current;
+    if (!runner) return;
 
-    // typed arrays are mutated in-place -> force canvas redraw
-    bumpRender();
+    try {
+      const outcome = runner.step();
+      bumpRender();
 
-    if (outcome === "continue") {
-      const isRunning = timerRef.current !== null;
-      setRunStatus(isRunning ? "running" : "paused");
-      setRunMessage(`${runner.algo.toUpperCase()} running... Step ${runner.stepCount}`);
-      return;
+      if (outcome === "continue") {
+        const isRunning = timerRef.current !== null;
+        setRunStatus(isRunning ? "running" : "paused");
+        setRunMessage(`${runner.algo.toUpperCase()} running... Step ${runner.stepCount}`);
+      } else if (outcome === "found") {
+        stopRunTimer();
+        setRunStatus("finished");
+
+        const timeTakenMs  = startTimeRef.current ? performance.now() - startTimeRef.current : 0;
+        const overlay      = runner.overlay;
+        const nodesVisited = Array.from(overlay.visited).reduce((s, v) => s + v, 0);
+        const finalPath    = overlay.finalPath ?? [];
+        const pathLen      = finalPath.length;
+
+        let pathCost = 0;
+        if ("gCost" in overlay && finalPath.length > 0) {
+          pathCost = (overlay as WeightedOverlay).gCost[finalPath[finalPath.length - 1]];
+        }
+
+        setMetricTime(timeTakenMs);
+        setMetricNodes(nodesVisited);
+        setMetricPathLen(pathLen);
+        setMetricCost(pathCost);
+
+        setRunMessage(
+          `${runner.algo.toUpperCase()} finished: end found, final path length is ${pathLen}, found in ${runner.stepCount} step(s)`
+        );
+      } else {
+        stopRunTimer();
+        setRunStatus("no-path");
+        setRunMessage(`${runner.algo.toUpperCase()} stopped: no path exists (frontier empty).`);
+      }
+    } catch (err) {
+      stopRunTimer();
+      setRunStatus("error");
+      setRunMessage(err instanceof Error ? err.message : "Unexpected error during run.");
     }
 
-  if (outcome === "found") {
-    stopRunTimer();
-    setRunStatus("finished");
-
-    const pathLen =
-      runner.overlay.finalPath && runner.overlay.finalPath.length > 0
-        ? runner.overlay.finalPath.length
-        : 0;
-
-    setRunMessage(
-      `${runner.algo.toUpperCase()} finished: end found, final path length is ${pathLen}, found in ${runner.stepCount} step(s)`
-    );
-    return;
+    // Also step runner B if in compare mode
+    if (compareMode && runnerBRef.current) {
+      try {
+        const rb = runnerBRef.current;
+        const outcome = rb.step();
+        setOverlayB({ ...rb.overlay } as any);
+        if (outcome !== "continue") {
+          runnerBRef.current = null;
+        }
+        bumpRender();
+      } catch (err) {
+        runnerBRef.current = null;
+      }
+    }
   }
-
-    // no-path
-    stopRunTimer();
-    setRunStatus("no-path");
-    setRunMessage(`${runner.algo.toUpperCase()} stopped: no path exists (frontier empty).`);
-  } catch (err) {
-    stopRunTimer();
-    setRunStatus("error");
-    setRunMessage(err instanceof Error ? err.message : "Unexpected error during run.");
-  }
-}
 
 function initialiseAlgorithmRun(algo: AlgoChoice) {
   resetAlgorithmRun("Initialising new run...");
@@ -260,26 +372,116 @@ function initialiseAlgorithmRun(algo: AlgoChoice) {
     setRunStatus("paused");
     setRunMessage(`${algo.toUpperCase()} initialised. Ready to play.`);
     bumpRender();
-  } catch (err) {
-    setRunStatus("error");
-    setRunMessage(err instanceof Error ? err.message : "Failed to initialise run.");
-  }
-}
-
-function playAlgorithm() {
-  if (!runnerRef.current) {
-    setRunMessage("Initialise a algorithm run first.");
-    return;
+    } catch (err) {
+      setRunStatus("error");
+      setRunMessage(err instanceof Error ? err.message : "Failed to initialise run.");
+    }
   }
 
-  stopRunTimer();
-  setRunStatus("running");
-  setRunMessage(`${runnerRef.current.algo.toUpperCase()} running...`);
+  function playAlgorithm() {
+    if (!runnerRef.current) {
+      setRunMessage("Initialise a algorithm run first.");
+      return;
+    }
 
-  timerRef.current = window.setInterval(() => {
-    stepAlgorithmOnce();
-  }, stepDelayMs);
-}
+    stopRunTimer();
+    startTimeRef.current = performance.now();
+    setRunStatus("running");
+    setRunMessage(`${runnerRef.current.algo.toUpperCase()} running...`);
+
+    if (compareMode && runnerBRef.current) {
+      timerRef.current = window.setInterval(() => {
+        const ra = runnerRef.current;
+        const rb = runnerBRef.current;
+        let doneA = true, doneB = true;
+
+        if (ra) {
+          const outcome = ra.step();
+          setAlgoOverlay({ ...ra.overlay } as any);
+          if (outcome === "continue") doneA = false;
+          else runnerRef.current = null;
+        }
+        if (rb) {
+          const outcome = rb.step();
+          setOverlayB({ ...rb.overlay } as any);
+          if (outcome === "continue") doneB = false;
+          else runnerBRef.current = null;
+        }
+
+        bumpRender();
+        if (doneA && doneB) {
+          stopRunTimer();
+          setRunStatus("finished");
+          setRunMessage("Compare run complete.");
+        }
+      }, stepDelayMs);
+    } else {
+      timerRef.current = window.setInterval(() => {
+        stepAlgorithmOnce();
+      }, stepDelayMs);
+    }
+  }
+
+  function handleVisualizeCompare() {
+    stopRunTimer();
+  
+    const gridB = cloneGrid(grid);
+    gridBRef.current = gridB;
+  
+    initialiseAlgorithmRun(selectedAlgo);
+    const ra = runnerRef.current;
+    if (!ra) return;
+  
+    let rb: UnweightedRunner | WeightedRunner;
+    try {
+      if (compareAlgo === "BFS" || compareAlgo === "DFS") {
+        const err = validateUnweightedRun(gridB);
+        if (err) { setRunMessage(err); return; }
+        rb = createUnweightedRunner(compareAlgo, gridB, { movement });
+      } else {
+        const err = validateWeightedRun(gridB);
+        if (err) { setRunMessage(err); return; }
+        const hw = Number(heuristicWeightText.trim());
+        rb = createWeightedRunner(compareAlgo, gridB, {
+          movement, heuristic: heuristicKind, heuristicWeight: hw,
+        });
+      }
+    } catch (err) {
+      setRunMessage(err instanceof Error ? err.message : "Failed to init compare run.");
+      return;
+    }
+  
+    runnerBRef.current = rb;
+    setOverlayB(rb.overlay as any);
+    setRunStatus("running");
+    startTimeRef.current = performance.now();
+  
+    timerRef.current = window.setInterval(() => {
+      const ra = runnerRef.current;
+      const rb = runnerBRef.current;
+      let doneA = true, doneB = true;
+  
+      if (ra) {
+        const outcome = ra.step();
+        setAlgoOverlay({ ...ra.overlay } as any);
+        if (outcome === "continue") doneA = false;
+        else runnerRef.current = null;
+      }
+      if (rb) {
+        const outcome = rb.step();
+        setOverlayB({ ...rb.overlay } as any);
+        if (outcome === "continue") doneB = false;
+        else runnerBRef.current = null;
+      }
+  
+      bumpRender();
+      if (doneA && doneB) {
+        stopRunTimer();
+        setRunStatus("finished");
+        setRunMessage("Compare run complete.");
+      }
+    }, stepDelayMs);
+  }
 
 function pauseAlgorithm() {
   stopRunTimer();
@@ -291,6 +493,7 @@ function pauseAlgorithm() {
 function handleGridMutated() {
   if (runStatus !== "idle") {
     resetAlgorithmRun("Board edited. Previous algorithm run cleared.");
+    setCompareMode(false);
   }
   bumpRender();
 }
@@ -304,13 +507,21 @@ useEffect(() => {
   }
 
   resetAlgorithmRun("Grid resized. Algorithm run cleared.");
+  setCompareMode(false);
   bumpRender();
 }, [w, h]);
 
   return (
-    <div style={{ padding: 16 }}>
-      <h1>Pathfinding Visualiser (v0.1)</h1>
-
+    <div style={{ padding: 16, maxWidth: 1400, margin: "0 auto" }}>
+      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", width: "100%" }}>
+        <h1>Pathfinding Visualiser</h1>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={() => setTheme(t => t === "dark" ? "light" : "dark")}>
+            {theme === "dark" ? "Light mode" : "Dark mode"}
+          </button>
+          <button onClick={() => setShowHelp(true)}>? Help</button>
+        </div>
+      </div>
       <div
         style={{
           display: "flex",
@@ -459,6 +670,35 @@ useEffect(() => {
             </select>
           </label>
 
+          <label>
+            <input
+              type="checkbox"
+              checked={compareMode}
+              onChange={(e) => {
+                setCompareMode(e.target.checked);
+                resetAlgorithmRun("Compare mode toggled.");
+              }}
+              style={{ marginRight: 6 }}
+            />
+            Compare mode
+          </label>
+          
+          {compareMode && (
+            <label>
+              Algorithm B:
+              <select
+                value={compareAlgo}
+                onChange={(e) => setCompareAlgo(e.target.value as AlgoChoice)}
+                style={{ marginLeft: 8 }}
+              >
+                <option value="BFS">BFS</option>
+                <option value="DFS">DFS</option>
+                <option value="Dijkstra">Dijkstra</option>
+                <option value="A*">A*</option>
+              </select>
+            </label>
+          )}
+
           {/* <label>
             Movement:
             <select
@@ -513,11 +753,15 @@ useEffect(() => {
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
           <button
             onClick={() => {
-              initialiseAlgorithmRun(selectedAlgo);
-              setTimeout(() => playAlgorithm(), 0);
+              if (compareMode) {
+                handleVisualizeCompare();
+              } else {
+                initialiseAlgorithmRun(selectedAlgo);
+                setTimeout(() => playAlgorithm(), 0);
+              }
             }}
           >
-            Visualize {selectedAlgo}
+            Visualize {compareMode ? `${selectedAlgo} vs ${compareAlgo}` : selectedAlgo}
           </button>
 
           <button onClick={pauseAlgorithm}>Pause</button>
@@ -540,15 +784,102 @@ useEffect(() => {
           </div>
         </div>
       </div>
-      
-    <CanvasGrid
-      grid={grid}
-      brush={brush}
-      renderTick={renderTick}
-      onGridMutated={handleGridMutated}
-      overlay={algoOverlay}
-      canEdit={runStatus !== "running"}
-    />
+    <div style={{ fontSize: 20, display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center", justifyContent: "center", marginTop: 8, marginBottom: 4 }}>
+      <span><span style={{ display: "inline-block", width: 15, height: 15, background: "#00a000", marginRight: 4 }} />Start</span>
+      <span><span style={{ display: "inline-block", width: 15, height: 15, background: "#a00000", marginRight: 4 }} />End</span>
+      <span><span style={{ display: "inline-block", width: 15, height: 15, background: "#202020", marginRight: 4 }} />Wall</span>
+      <span><span style={{ display: "inline-block", width: 15, height: 15, background: "#f59e0b", marginRight: 4 }} />Current</span>
+      <span><span style={{ display: "inline-block", width: 15, height: 15, background: "#38bdf8", marginRight: 4 }} />Frontier</span>
+      <span><span style={{ display: "inline-block", width: 15, height: 15, background: "#93c5fd", marginRight: 4 }} />Visited</span>
+      <span><span style={{ display: "inline-block", width: 15, height: 15, background: "#ffd400", marginRight: 4 }} />Path</span>
+      <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+        Weight:
+        {Array.from({ length: 8 }, (_, i) => {
+          const t = 245 - Math.floor((i / 7) * 160);
+          return <span key={i} style={{ display: "inline-block", width: 12, height: 12, background: `rgb(${t},${t},255)` }} />;
+        })}
+      </span>
+    </div>
+{compareMode ? (
+  <div style={{ display: "flex", gap: 16, justifyContent: "center" }}>
+    <div style={{ flex: 1 }}>
+      <div style={{ textAlign: "center", fontWeight: 600, marginBottom: 4 }}>
+        {selectedAlgo}
+      </div>
+      <CanvasGrid
+        grid={grid}
+        brush={brush}
+        renderTick={renderTick}
+        onGridMutated={handleGridMutated}
+        overlay={algoOverlay}
+        canEdit={runStatus !== "running"}
+        onCellClick={handleCellClick}
+      />
+    </div>
+    <div style={{ flex: 1 }}>
+      <div style={{ textAlign: "center", fontWeight: 600, marginBottom: 4 }}>
+        {compareAlgo}
+      </div>
+      <CanvasGrid
+        grid={gridBRef.current ?? grid}
+        brush={brush}
+        renderTick={renderTick}
+        onGridMutated={handleGridMutated}
+        overlay={overlayB}
+        canEdit={false}
+        onCellClick={handleCellClick}
+      />
+    </div>
+  </div>
+    ) : (
+      <CanvasGrid
+        grid={grid}
+        brush={brush}
+        renderTick={renderTick}
+        onGridMutated={handleGridMutated}
+        overlay={algoOverlay}
+        canEdit={runStatus !== "running"}
+        onCellClick={handleCellClick}
+      />
+    )}
+    {renderInspector()}
+    
+    <div style={{ display: "flex", gap: 12, marginTop: 10, flexWrap: "wrap", justifyContent: "center" }}>
+      {[
+        { label: "Time",          val: metricTime    !== null
+            ? `${metricTime.toFixed(1)} ms` : "—" },
+        { label: "Nodes visited", val: metricNodes   !== null
+            ? String(metricNodes)           : "—" },
+        { label: "Path length",   val: metricPathLen !== null
+            ? String(metricPathLen)         : "—" },
+        { label: "Path cost",     val: metricCost    !== null
+            ? metricCost.toFixed(1)         : "—" },
+      ].map(({ label, val }) => (
+        <div key={label} style={{
+          padding: "8px 14px",
+          border: "1px solid #888",
+          borderRadius: 6,
+          textAlign: "center",
+          minWidth: 100,
+        }}>
+          <div style={{
+            fontSize: 10,
+            opacity: 0.6,
+            textTransform: "uppercase",
+            letterSpacing: 1
+          }}>
+            {label}
+          </div>
+          <div style={{
+            fontSize: 18,
+            fontWeight: 700,
+            fontFamily: "monospace"
+          }}>
+            {val}
+          </div>
+        </div>
+      ))}
+    </div>
 
     <div style={{ marginTop: 12, padding: 12, border: "1px solid #ccc", borderRadius: 8 }}>
           <div style={{ fontWeight: 600, marginBottom: 10 }}>Board generation</div>
@@ -655,7 +986,7 @@ useEffect(() => {
             </div>
           </div>
         </div>
-
+    {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
     </div>
   );
 }
