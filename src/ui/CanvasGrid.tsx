@@ -12,6 +12,7 @@ type Props = {
   overlay?: UnweightedOverlay | null;
   canEdit?: boolean;
   onCellClick?: (index: number) => void;
+  inspectedIndex?: number | null;
 };
 
 export default function CanvasGrid({
@@ -22,7 +23,8 @@ export default function CanvasGrid({
   overlay = null,
   canEdit = true,
   onCellClick,
-}: Props) {
+  inspectedIndex = null,
+}: Props) { 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const paintingRef = useRef(false);
 
@@ -34,9 +36,10 @@ export default function CanvasGrid({
 
     drawGrid(ctx, canvas.width, canvas.height, grid, {
       overlay,
+      inspectedIndex,
     });
 
-  }, [grid, renderTick, overlay]);
+  }, [grid, renderTick, overlay, inspectedIndex]);
 
   return (
     <div style={{ marginTop: 16, display: "flex", justifyContent: "center" }}>
@@ -95,3 +98,4 @@ export default function CanvasGrid({
   }
 
 }
+

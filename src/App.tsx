@@ -86,6 +86,8 @@ export default function App() {
   const [paintWeight, setPaintWeight] = useState(500);
   const [paintBlocked, setPaintBlocked] = useState(true);
 
+  const [viewMode, setViewMode] = useState(false);
+
   brush.mode = mode;
   brush.shape = shape;
   brush.setSize(brushSize);
@@ -108,6 +110,7 @@ export default function App() {
   const [smoothPasses, setSmoothPasses] = useState(1);
 
   function handleCellClick(index: number) {
+    if (!viewMode) return;
     setInspectedIndex(prev => prev === index ? null : index);
   }
 
@@ -235,6 +238,11 @@ export default function App() {
   const [metricPathLen, setMetricPathLen] = useState<number | null>(null);
   const [metricCost,    setMetricCost]    = useState<number | null>(null);
 
+  const [metricTimeB,    setMetricTimeB]    = useState<number | null>(null);
+  const [metricNodesB,   setMetricNodesB]   = useState<number | null>(null);
+  const [metricPathLenB, setMetricPathLenB] = useState<number | null>(null);
+  const [metricCostB,    setMetricCostB]    = useState<number | null>(null);
+
 function stopRunTimer() {
   if (timerRef.current !== null) {
     window.clearInterval(timerRef.current);
@@ -254,6 +262,10 @@ function resetAlgorithmRun(reason = "No algorithm running.") {
   setMetricNodes(null);
   setMetricPathLen(null);
   setMetricCost(null);
+  setMetricTimeB(null);
+  setMetricNodesB(null);
+  setMetricPathLenB(null);
+  setMetricCostB(null);
 }
 
 
@@ -398,16 +410,33 @@ function initialiseAlgorithmRun(algo: AlgoChoice) {
         if (ra) {
           const outcome = ra.step();
           setAlgoOverlay({ ...ra.overlay } as any);
-          if (outcome === "continue") doneA = false;
-          else runnerRef.current = null;
+          if (outcome === "continue") {
+            doneA = false;
+          } else {
+            const ov = ra.overlay;
+            const fp = ov.finalPath ?? [];
+            setMetricTime(startTimeRef.current ? performance.now() - startTimeRef.current : 0);
+            setMetricNodes(Array.from(ov.visited).reduce((s, v) => s + v, 0));
+            setMetricPathLen(fp.length);
+            setMetricCost("gCost" in ov && fp.length > 0 ? (ov as any).gCost[fp[fp.length - 1]] : 0);
+            runnerRef.current = null;
+          }
         }
         if (rb) {
           const outcome = rb.step();
           setOverlayB({ ...rb.overlay } as any);
-          if (outcome === "continue") doneB = false;
-          else runnerBRef.current = null;
+          if (outcome === "continue") {
+            doneB = false;
+          } else {
+            const ov = rb.overlay;
+            const fp = ov.finalPath ?? [];
+            setMetricTimeB(startTimeRef.current ? performance.now() - startTimeRef.current : 0);
+            setMetricNodesB(Array.from(ov.visited).reduce((s, v) => s + v, 0));
+            setMetricPathLenB(fp.length);
+            setMetricCostB("gCost" in ov && fp.length > 0 ? (ov as any).gCost[fp[fp.length - 1]] : 0);
+            runnerBRef.current = null;
+          }
         }
-
         bumpRender();
         if (doneA && doneB) {
           stopRunTimer();
@@ -460,20 +489,38 @@ function initialiseAlgorithmRun(algo: AlgoChoice) {
       const ra = runnerRef.current;
       const rb = runnerBRef.current;
       let doneA = true, doneB = true;
-  
+
       if (ra) {
         const outcome = ra.step();
         setAlgoOverlay({ ...ra.overlay } as any);
-        if (outcome === "continue") doneA = false;
-        else runnerRef.current = null;
+        if (outcome === "continue") {
+          doneA = false;
+        } else {
+          const ov = ra.overlay;
+          const fp = ov.finalPath ?? [];
+          setMetricTime(startTimeRef.current ? performance.now() - startTimeRef.current : 0);
+          setMetricNodes(Array.from(ov.visited).reduce((s, v) => s + v, 0));
+          setMetricPathLen(fp.length);
+          setMetricCost("gCost" in ov && fp.length > 0 ? (ov as any).gCost[fp[fp.length - 1]] : 0);
+          runnerRef.current = null;
+        }
       }
       if (rb) {
         const outcome = rb.step();
         setOverlayB({ ...rb.overlay } as any);
-        if (outcome === "continue") doneB = false;
-        else runnerBRef.current = null;
+        if (outcome === "continue") {
+          doneB = false;
+        } else {
+          const ov = rb.overlay;
+          const fp = ov.finalPath ?? [];
+          setMetricTimeB(startTimeRef.current ? performance.now() - startTimeRef.current : 0);
+          setMetricNodesB(Array.from(ov.visited).reduce((s, v) => s + v, 0));
+          setMetricPathLenB(fp.length);
+          setMetricCostB("gCost" in ov && fp.length > 0 ? (ov as any).gCost[fp[fp.length - 1]] : 0);
+          runnerBRef.current = null;
+        }
       }
-  
+
       bumpRender();
       if (doneA && doneB) {
         stopRunTimer();
@@ -799,6 +846,7 @@ useEffect(() => {
           return <span key={i} style={{ display: "inline-block", width: 12, height: 12, background: `rgb(${t},${t},255)` }} />;
         })}
       </span>
+      <span><span style={{ display: "inline-block", width: 12, height: 12, background: "rgba(255,100,100,0.7)", marginRight: 4 }} />Inspected</span>
     </div>
 {compareMode ? (
   <div style={{ display: "flex", gap: 16, justifyContent: "center" }}>
@@ -812,8 +860,9 @@ useEffect(() => {
         renderTick={renderTick}
         onGridMutated={handleGridMutated}
         overlay={algoOverlay}
-        canEdit={runStatus !== "running"}
+        canEdit={runStatus !== "running" && !viewMode}
         onCellClick={handleCellClick}
+        inspectedIndex={inspectedIndex}
       />
     </div>
     <div style={{ flex: 1 }}>
@@ -828,6 +877,7 @@ useEffect(() => {
         overlay={overlayB}
         canEdit={false}
         onCellClick={handleCellClick}
+        inspectedIndex={inspectedIndex}
       />
     </div>
   </div>
@@ -838,48 +888,79 @@ useEffect(() => {
         renderTick={renderTick}
         onGridMutated={handleGridMutated}
         overlay={algoOverlay}
-        canEdit={runStatus !== "running"}
+        canEdit={runStatus !== "running" && !viewMode}
         onCellClick={handleCellClick}
+        inspectedIndex={inspectedIndex}
       />
     )}
-    {renderInspector()}
-    
-    <div style={{ display: "flex", gap: 12, marginTop: 10, flexWrap: "wrap", justifyContent: "center" }}>
-      {[
-        { label: "Time",          val: metricTime    !== null
-            ? `${metricTime.toFixed(1)} ms` : "—" },
-        { label: "Nodes visited", val: metricNodes   !== null
-            ? String(metricNodes)           : "—" },
-        { label: "Path length",   val: metricPathLen !== null
-            ? String(metricPathLen)         : "—" },
-        { label: "Path cost",     val: metricCost    !== null
-            ? metricCost.toFixed(1)         : "—" },
-      ].map(({ label, val }) => (
-        <div key={label} style={{
-          padding: "8px 14px",
-          border: "1px solid #888",
-          borderRadius: 6,
-          textAlign: "center",
-          minWidth: 100,
-        }}>
-          <div style={{
-            fontSize: 10,
-            opacity: 0.6,
-            textTransform: "uppercase",
-            letterSpacing: 1
-          }}>
-            {label}
-          </div>
-          <div style={{
-            fontSize: 18,
-            fontWeight: 700,
-            fontFamily: "monospace"
-          }}>
-            {val}
-          </div>
-        </div>
-      ))}
+
+    <div>
+      <label style={{ marginTop: 8, display: "block" }}>
+        <input
+          type="checkbox"
+          checked={viewMode}
+          onChange={(e) => {
+            setViewMode(e.target.checked);
+            if (!e.target.checked) setInspectedIndex(null);
+          }}
+          style={{ marginRight: 6 }}
+        />
+        View mode (tick to click cells to inspect, untick to paint cells)
+      </label>
+      {viewMode && renderInspector()}
     </div>
+    
+    {compareMode ? (
+      <div style={{ display: "flex", gap: 32, marginTop: 10, justifyContent: "center", flexWrap: "wrap" }}>
+        {[
+          { title: selectedAlgo, time: metricTime,  nodes: metricNodes,  pathLen: metricPathLen,  cost: metricCost  },
+          { title: compareAlgo,  time: metricTimeB, nodes: metricNodesB, pathLen: metricPathLenB, cost: metricCostB },
+        ].map(({ title, time, nodes, pathLen, cost }) => (
+          <div key={title}>
+            <div style={{ textAlign: "center", fontWeight: 600, marginBottom: 6 }}>{title}</div>
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", justifyContent: "center" }}>
+              {[
+                { label: "Time",          val: time    !== null ? `${time.toFixed(1)} ms` : "—" },
+                { label: "Nodes visited", val: nodes   !== null ? String(nodes)            : "—" },
+                { label: "Path length",   val: pathLen !== null ? String(pathLen)          : "—" },
+                { label: "Path cost",     val: cost    !== null ? cost.toFixed(1)          : "—" },
+              ].map(({ label, val }) => (
+                <div key={label} style={{
+                  padding: "8px 14px",
+                  border: "1px solid #888",
+                  borderRadius: 6,
+                  textAlign: "center",
+                  minWidth: 100,
+                }}>
+                  <div style={{ fontSize: 10, opacity: 0.6, textTransform: "uppercase", letterSpacing: 1 }}>{label}</div>
+                  <div style={{ fontSize: 18, fontWeight: 700, fontFamily: "monospace" }}>{val}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    ) : (
+      <div style={{ display: "flex", gap: 12, marginTop: 10, flexWrap: "wrap", justifyContent: "center" }}>
+        {[
+          { label: "Time",          val: metricTime    !== null ? `${metricTime.toFixed(1)} ms` : "—" },
+          { label: "Nodes visited", val: metricNodes   !== null ? String(metricNodes)            : "—" },
+          { label: "Path length",   val: metricPathLen !== null ? String(metricPathLen)          : "—" },
+          { label: "Path cost",     val: metricCost    !== null ? metricCost.toFixed(1)          : "—" },
+        ].map(({ label, val }) => (
+          <div key={label} style={{
+            padding: "8px 14px",
+            border: "1px solid #888",
+            borderRadius: 6,
+            textAlign: "center",
+            minWidth: 100,
+          }}>
+            <div style={{ fontSize: 10, opacity: 0.6, textTransform: "uppercase", letterSpacing: 1 }}>{label}</div>
+            <div style={{ fontSize: 18, fontWeight: 700, fontFamily: "monospace" }}>{val}</div>
+          </div>
+        ))}
+      </div>
+    )}
 
     <div style={{ marginTop: 12, padding: 12, border: "1px solid #ccc", borderRadius: 8 }}>
           <div style={{ fontWeight: 600, marginBottom: 10 }}>Board generation</div>

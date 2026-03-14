@@ -4,6 +4,7 @@ import type { WeightedOverlay } from "../algo/weighted";
 
 type DrawGridOptions = {
   overlay?: (UnweightedOverlay | WeightedOverlay) | null;
+  inspectedIndex?: number | null;
 };
 
 function weightToColor(w: number): string {
@@ -63,7 +64,7 @@ export function drawGrid(
   grid: GridState,
   options: DrawGridOptions = {}
 ) {
-  const { overlay = null } = options;
+  const { overlay = null, inspectedIndex = null } = options;
 
   // recompute integer pixel boundaries to avoid fractional seams 
   const xBound: number[] = new Array(grid.width + 1);
@@ -103,7 +104,12 @@ export function drawGrid(
         }
       }
       ctx.fillRect(x0, y0, w, h);
-      
+
+      // inspected cell highlight
+      if (i === inspectedIndex) {
+        ctx.fillStyle = "rgba(255, 100, 100, 0.45)";
+        ctx.fillRect(x0, y0, w, h);
+      }
     }
   }
 
